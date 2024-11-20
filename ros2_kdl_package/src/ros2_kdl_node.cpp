@@ -32,7 +32,11 @@ class Iiwa_pub_sub : public rclcpp::Node
         Iiwa_pub_sub()
         : Node("ros2_kdl_node"), 
         node_handle_(std::shared_ptr<Iiwa_pub_sub>(this))
-        {
+        {   
+            //////////////////////////////////////////
+            // Retreive urdf and create roboy obj   //
+            //////////////////////////////////////////
+
             // declare cmd_interface parameter (position, velocity)
             declare_parameter("cmd_interface", "effort"); // defaults to "position"
             get_parameter("cmd_interface", cmd_interface_);
@@ -75,7 +79,12 @@ class Iiwa_pub_sub : public rclcpp::Node
             robot_->setJntLimits(q_min,q_max);
             joint_positions_.resize(nj); // joint positions array
             joint_velocities_.resize(nj); // joint velocities array
-            joint_torques_.resize(nj); // joint torques array
+            joint_accelerations_.resize(nj);
+            joint_torques_.resize(nj); 
+
+            //////////////////////////////////////////////////////
+            // Subscribes to jnt states and update robot values //
+            //////////////////////////////////////////////////////
 
             // Subscriber to jnt states
             jointSubscriber_ = this->create_subscription<sensor_msgs::msg::JointState>(
@@ -95,6 +104,7 @@ class Iiwa_pub_sub : public rclcpp::Node
 
             // Compute EE frame
             init_cart_pose_ = robot_->getEEFrame();
+            init_cart_vel_ = robot_->getEEVelocity();
             // std::cout << "The initial EE pose is: " << std::endl;  
             // std::cout << init_cart_pose_ <<std::endl;
 
@@ -116,29 +126,19 @@ class Iiwa_pub_sub : public rclcpp::Node
             // Plan trajectory
             double traj_duration = 1.5, acc_duration = 0.5, t = 0.0;
             double  traj_radius = 0.15;
-            //planner_ = KDLPlanner(traj_duration, acc_duration, init_position, end_position); // currently using trapezoidal velocity profile
-            planner_ = KDLPlanner(traj_duration, init_position, traj_radius, acc_duration);
+            planner_ = KDLPlanner(traj_duration, acc_duration, init_position, end_position); // currently using trapezoidal velocity profile
+            //planner_ = KDLPlanner(traj_duration, init_position, traj_radius, acc_duration);
 
             // Retrieve the first trajectory point
-            //trajectory_point p = planner_.compute_trajectory(t);
-            trajectory_point p = planner_.circular_traj_cubic(t);
+            //trajectory_point p = planner_.compute_trajectory(t_);
+            //trajectory_point p = planner_.circular_traj_cubic(t_);
+            //trajectory_point p = planner_.circular_traj_trapezoidal(t_);
+            //trajectory_point p = planner_.linear_traj_trapezoidal(t_);
+            trajectory_point p = planner_.linear_traj_cubic(t_);
 
             // compute errors
             Eigen::Vector3d error = computeLinearError(p.pos, Eigen::Vector3d(init_cart_pose_.p.data));
             //std::cout << "The initial error is : " << error << std::endl;
-
-            // Init torques
-            KDL::JntArray q_in(nj);
-            KDL::JntArray q_dot_in(nj);
-            KDL::JntArray q_dotdot_in(nj);
-            KDL::Wrenches f_ext_in(nj, KDL::Wrench::Zero()); 
-            q_in(0) = 0.5; q_in(1) = -0.78; q_in(2) = 0; q_in(3) = 1.39; q_in(4) = 0; q_in(5) = 0.61; q_in(6) = 0;
-            joint_torques_.data = robot_->getID(q_in, q_dot_in, q_dotdot_in, f_ext_in);
-            std::cout << joint_torques_.data <<std::endl;
-
-                for (long int i = 0; i < joint_torques_.data.size(); ++i) {
-                    desired_commands_[i] = 10;
-                }
             
             if(cmd_interface_ == "position"){
                 // Create cmd publisher
@@ -157,19 +157,18 @@ class Iiwa_pub_sub : public rclcpp::Node
                 timer_ = this->create_wall_timer(std::chrono::milliseconds(100), 
                                             std::bind(&Iiwa_pub_sub::cmd_publisher, this));
             
-                // Send joint velocity commands
+                // Set joint velocity commands
                 for (long int i = 0; i < joint_velocities_.data.size(); ++i) {
                     desired_commands_[i] = joint_velocities_(i);
                 }
-            }else{
-                // Init manipulator torques
-
-
+            }
+            else if(cmd_interface_ == "effort"){
                 // Create cmd publisher
                 cmdPublisher_ = this->create_publisher<FloatArray>("/effort_controller/commands", 10);
-                timer_ = this->create_wall_timer(std::chrono::milliseconds(100), 
+                timer_ = this->create_wall_timer(std::chrono::milliseconds(20), 
                                             std::bind(&Iiwa_pub_sub::cmd_publisher, this));
-                // Send joint effort commands
+            
+                // Set joint effort commands
                 for (long int i = 0; i < joint_torques_.data.size(); ++i) {
                     desired_commands_[i] = joint_torques_(i);
                 }
@@ -194,32 +193,32 @@ class Iiwa_pub_sub : public rclcpp::Node
             int trajectory_len = 150; // 
             int loop_rate = trajectory_len / total_time;
             double dt = 1.0 / loop_rate;
-            t_+=dt;
+            t_ += dt;
 
             if (t_ < total_time){
 
-                // Set endpoint twist
-                // double t = iteration_;
-                // joint_velocities_.data[2] = 2 * 0.3 * cos(2 * M_PI * t / trajectory_len);
-                // joint_velocities_.data[3] = -0.3 * sin(2 * M_PI * t / trajectory_len);
-
-                // Integrate joint velocities
-                // joint_positions_.data += joint_velocities_.data * dt;
-
                 // Retrieve the trajectory point
-                trajectory_point p = planner_.compute_trajectory(t_); 
+                //trajectory_point p = planner_.compute_trajectory(t_); 
+                //trajectory_point p = planner_.linear_traj_trapezoidal(t_);
+                trajectory_point p = planner_.linear_traj_cubic(t_);
+                //trajectory_point p = planner_.circular_traj_trapezoidal(t_);
                 //trajectory_point p = planner_.circular_traj_cubic(t_);
 
-                // Compute EE frame
+                // Compute EE frame acctual position and velocity
                 KDL::Frame cartpos = robot_->getEEFrame();
+                KDL::Twist cartvel = robot_->getEEVelocity();
 
-                // Compute desired Frame
-                KDL::Frame desFrame; desFrame.M = cartpos.M; desFrame.p = toKDL(p.pos); 
+                // Compute desired Frame position, velocity and acceleration at current p
+                KDL::Frame desPos; desPos.M = cartpos.M; desPos.p = toKDL(p.pos);   // x_des
+                KDL::Twist desVel; desVel.rot = cartvel.rot; desVel.vel = toKDL(p.vel);   // x_dot_des
+                KDL::Twist desAcc;
+                desAcc = KDL::Twist(KDL::Vector(p.acc[0], p.acc[1], p.acc[2]),KDL::Vector::Zero());   // X_ddot_des
 
                 // compute errors
                 Eigen::Vector3d error = computeLinearError(p.pos, Eigen::Vector3d(cartpos.p.data));
                 Eigen::Vector3d o_error = computeOrientationError(toEigen(init_cart_pose_.M), toEigen(cartpos.M));
                 std::cout << "The error norm is : " << error.norm() << std::endl;
+                error_norm = error.norm();
 
                 if(cmd_interface_ == "position"){
                     // Next Frame
@@ -234,67 +233,106 @@ class Iiwa_pub_sub : public rclcpp::Node
                     Vector6d cartvel; cartvel << p.vel + 5*error, o_error;
                     joint_velocities_.data = pseudoinverse(robot_->getEEJacobian().data)*cartvel;
                     joint_positions_.data = joint_positions_.data + joint_velocities_.data*dt;
+                    
                 }
-                else{
+                else if(cmd_interface_ == "effort"){
                     // Desired joints references variables
-                    KDL::JntArray q_des, q_dot_des, q_ddot_des;
+                    /*KDL::JntArray q_des, q_dot_des, q_ddot_des;
 
                     // Compute q_des from trjectory with IK
-                    KDL::Frame desired_pose; 
-                    desired_pose.M = KDL::Rotation::Identity(); 
-                    desired_pose.p = KDL::Vector(p.pos.x(), p.pos.y(), p.pos.z());
                     q_des = KDL::JntArray(robot_->getNrJnts());
+                    KDL::Frame desired_pose;
+                    desired_pose.p = KDL::Vector(p.pos.x(), p.pos.y(), p.pos.z());
                     robot_->getInverseKinematics(desired_pose, q_des);
-                    std::cout << q_des.data << std::endl;
-
+                    joint_positions_.data = q_des.data;
+                    
+                    // Compute q_dot_des from trjectory with IK
                     q_dot_des = KDL::JntArray(robot_->getNrJnts());
                     Vector6d cartvel; cartvel << p.vel, Eigen::Vector3d::Zero();
-                    //q_dot_des.data = pseudoinverse(robot_->getEEJacobian().data) * cartvel;
                     KDL::Twist twist = toKDLTwist(cartvel);
                     robot_->getInverseKinematicsVel(desired_pose, twist, q_des, q_dot_des);
-                    std::cout << q_dot_des.data << std::endl;
+                    joint_velocities_.data = q_dot_des.data;
 
+                    // Compute q_ddot_des from trjectory with IK
                     q_ddot_des = KDL::JntArray(robot_->getNrJnts());
                     Vector6d cartacc; cartacc << p.acc, Eigen::Vector3d::Zero();
                     q_ddot_des.data = pseudoinverse(robot_->getEEJacobian().data) * (cartacc - robot_->getEEJacDotqDot()*q_dot_des.data);
-                    std::cout << q_ddot_des.data << std::endl;
 
-                    double Kp = 100;
-                    double Kd = 100;
+                    // Filter q_ddot
+                    static Eigen::VectorXd q_ddot_filtered = Eigen::VectorXd::Zero(robot_->getNrJnts());
+                    double alpha = 0.8; // Smoothing factor, 0 < alpha <= 1
+                    q_ddot_filtered = alpha * q_ddot_filtered + (1 - alpha) * q_ddot_des.data;
+                    q_ddot_des.data = q_ddot_filtered;*/
+
+                    double Kp = 25;
+                    double Kd = 5;
+
+                    Eigen::Matrix<double,3,3,Eigen::RowMajor> R_des(init_cart_pose_.M.data);
+                    Eigen::Matrix<double,3,3,Eigen::RowMajor> R_e(robot_->getEEFrame().M.data);
+                    R_des = matrixOrthonormalization(R_des);
+                    R_e = matrixOrthonormalization(R_e);
+
+                    Eigen::Matrix<double,3,1> omega_des(init_cart_vel_.rot.data);
+                    Eigen::Matrix<double,3,1> omega_e(robot_->getEEVelocity().rot.data);
+
+                    // define second order click
+                    Eigen::Vector3d error_dot = computeLinearError(p.vel, Eigen::Vector3d(desVel.vel.data));
+                    Eigen::Vector3d o_error_dot = computeOrientationVelocityError(omega_des, omega_e, R_des, R_e);
+                    
+                    Vector6d cartacc; cartacc << p.acc + 5*error_dot + 10*error, 5*o_error_dot + 10*o_error;
+                    joint_accelerations_.data = pseudoinverse(robot_->getEEJacobian().data) * (cartacc
+                                         - robot_->getEEJacDotqDot()*joint_velocities_.data);
+                    // Integrate acceleration to obtain velocity and position
+                    joint_velocities_.data = joint_velocities_.data + joint_accelerations_.data*dt;
+                    joint_positions_.data = joint_positions_.data + joint_velocities_.data*dt;
 
                     // Inverse dynamics to compute control torques
                     //joint_torques_.data = controller_.idCntr(q_des, q_dot_des, q_ddot_des, Kp, Kd);
+                    joint_torques_.data = controller_.idCntr(joint_positions_, joint_velocities_, joint_accelerations_, Kp, Kd) - robot_->getGravity(); 
 
-                    KDL::Twist vel = toKDLTwist(cartvel);
-                    KDL::Twist acc = toKDLTwist(cartacc);
+                    // Filter command torques
+                    /*static Eigen::VectorXd torques_filtered = Eigen::VectorXd::Zero(robot_->getNrJnts());
+                    double beta = 0.9; // Smoothing factor, 0 < alpha <= 1
+                    torques_filtered = beta * torques_filtered + (1 - beta) * joint_torques_.data;
+                    joint_torques_.data = torques_filtered;*/
 
-                    joint_torques_.data = controller_.idCntr(desired_pose,
-                                      vel,
-                                      acc,
-                                      Kp, Kp,
-                                      Kd, Kd);
+                    /*                     KDL::Twist vel = toKDLTwist(cartvel);
+                    KDL::Twist acc = toKDLTwist(cartacc); */
+
+                    // define joint space inverse kinematics 
+                    double Kpp = 150;
+                    double Kpo = 10;
+                    double Kdp = 20;
+                    double Kdo = 10;
+                    //joint_torques_.data = controller_.idCntr(desPos, desVel, desAcc, Kpp, Kpo, Kdp, Kdo);
+
                 }
 
                 // Update KDLrobot structure
                 robot_->update(toStdVector(joint_positions_.data),toStdVector(joint_velocities_.data));
 
                 if(cmd_interface_ == "position"){
-                    // Send joint position commands
+                    // Set joint position commands
                     for (long int i = 0; i < joint_positions_.data.size(); ++i) {
                         desired_commands_[i] = joint_positions_(i);
                     }
                 }
                 else if(cmd_interface_ == "velocity"){
-                    // Send joint velocity commands
+                    // Set joint velocity commands
                     for (long int i = 0; i < joint_velocities_.data.size(); ++i) {
                         desired_commands_[i] = joint_velocities_(i);
                     }
                 }
-                else{
-                    // Send joint torques commands
+                else if(cmd_interface_ == "effort"){
+                    // Set joint effort commands
                     for (long int i = 0; i < joint_torques_.data.size(); ++i) {
                         desired_commands_[i] = joint_torques_(i);
                     }
+                    std::cout << "----------------- Joint states -------------------" << std::endl;
+                    std::cout << "joint positions: " << joint_positions_.data.transpose() << std::endl;
+                    std::cout << "joint velocities: " << joint_velocities_.data.transpose() << std::endl;
+                    std::cout << "joint accelerations: " << joint_accelerations_.data.transpose() << std::endl;
+                    std::cout << "torques: " << joint_torques_.data.transpose() <<std::endl;
                 }
 
                 // Create msg and publish
@@ -314,7 +352,7 @@ class Iiwa_pub_sub : public rclcpp::Node
                 RCLCPP_INFO_ONCE(this->get_logger(), "Trajectory executed successfully ...");
                 // Send joint velocity commands
                 for (long int i = 0; i < joint_velocities_.data.size(); ++i) {
-                    desired_commands_[i] = 0.0;
+                    desired_commands_[i] = joint_torques_(i);
                 }
                 
                 // Create msg and publish
@@ -327,24 +365,22 @@ class Iiwa_pub_sub : public rclcpp::Node
         // joint state subscriber callback to read actual joint positions and save them 
         void joint_state_subscriber(const sensor_msgs::msg::JointState& sensor_msg){
 
-            // for (size_t i = 0; i < sensor_msg.effort.size(); ++i) {
-            //     RCLCPP_INFO(this->get_logger(), "Positions %zu: %f", i, sensor_msg.position[i]);                
-            // }
-            // std::cout<<"\n";
-            // for (size_t i = 0; i < sensor_msg.effort.size(); ++i) {
-            //     RCLCPP_INFO(this->get_logger(), "Velocities %zu: %f", i, sensor_msg.velocity[i]);
-            // }
-            // std::cout<<"\n";
-            // for (size_t i = 0; i < sensor_msg.effort.size(); ++i) {
-            //     RCLCPP_INFO(this->get_logger(), "Efforts %zu: %f", i, sensor_msg.effort[i]);
-            // }
+            /*  for (size_t i = 0; i < sensor_msg.effort.size(); ++i) {
+                RCLCPP_INFO(this->get_logger(), "Positions %zu: %f", i, sensor_msg.position[i]);                
+            }
+            std::cout<<"\n";
+            for (size_t i = 0; i < sensor_msg.effort.size(); ++i) {
+                 RCLCPP_INFO(this->get_logger(), "Velocities %zu: %f", i, sensor_msg.velocity[i]);
+            }
+            std::cout<<"\n";
+            for (size_t i = 0; i < sensor_msg.effort.size(); ++i) {
+                 RCLCPP_INFO(this->get_logger(), "Efforts %zu: %f", i, sensor_msg.effort[i]);
+            } */
 
             joint_state_available_ = true;
-            for (unsigned int i = 0; i < sensor_msg.position.size(); i++){
+            for (unsigned int i  = 0; i < sensor_msg.position.size(); i++){
                 joint_positions_.data[i] = sensor_msg.position[i];
                 joint_velocities_.data[i] = sensor_msg.velocity[i];
-                // add joint torques states
-                joint_torques_.data[i] = sensor_msg.effort[i];
             }
         }
 
@@ -357,7 +393,10 @@ class Iiwa_pub_sub : public rclcpp::Node
         std::vector<double> desired_commands_ = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
         KDL::JntArray joint_positions_;
         KDL::JntArray joint_velocities_;
-        KDL::JntArray joint_torques_; // add torques array
+        KDL::JntArray joint_accelerations_;
+        
+        KDL::JntArray joint_torques_;
+
         std::shared_ptr<KDLRobot> robot_;
         KDLPlanner planner_;
         KDLController controller_;
@@ -365,8 +404,10 @@ class Iiwa_pub_sub : public rclcpp::Node
         int iteration_;
         bool joint_state_available_;
         double t_;
+        double error_norm;
         std::string cmd_interface_;
         KDL::Frame init_cart_pose_;
+        KDL::Twist init_cart_vel_;
 };
 
  

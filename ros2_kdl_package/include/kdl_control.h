@@ -27,9 +27,6 @@ public:
                            double _Kdp,
                            double _Kdo);
 
-    Eigen::VectorXd pd_gravity_cntr(KDL::JntArray &q_des, KDL::JntArray &q, 
-                                    KDL::JntArray &q_dot, double Kp, double Kd);
-
 private:
 
     KDLRobot* robot_;

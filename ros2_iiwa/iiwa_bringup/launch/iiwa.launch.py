@@ -17,7 +17,7 @@ from launch.actions import IncludeLaunchDescription, DeclareLaunchArgument, Regi
 from launch.conditions import IfCondition, UnlessCondition
 from launch.event_handlers import OnProcessExit, OnProcessStart
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import Command, FindExecutable, LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import Command, FindExecutable, LaunchConfiguration, PathJoinSubstitution, OrSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
@@ -291,17 +291,24 @@ def generate_launch_description():
         parameters=[
             robot_description,
         ],
-        condition=UnlessCondition(use_planning),
+        condition=UnlessCondition(OrSubstitution(use_planning, use_sim)),
     )
     iiwa_simulation_world = PathJoinSubstitution(
         [FindPackageShare(description_package),
             'gazebo/worlds', 'empty.world']
     )
 
-
-    declared_arguments.append(DeclareLaunchArgument('gz_args', default_value='-r -v 1 empty.sdf',
-                              description='Arguments for gz_sim'),)
-
+    """declared_arguments.append(DeclareLaunchArgument('gz_args', default_value='-r -v 1 empty.sdf',
+                              description='Arguments for gz_sim'),)"""
+        
+    declared_arguments.append(DeclareLaunchArgument('gz_args', default_value=iiwa_simulation_world,
+                            description='Arguments for gz_sim'),)
+    
+    """
+    export GZ_SIM_RESOURCE_PATH=$GZ_SIM_RESOURCE_PATH:world_simulation_models
+        Siccome il suo empty.world si richiama un ground plane e un sun, assicurati di avere tali modelli installati da qualche
+        parte sul tuo pc, e metti quel percorso nella EV
+    """
     gazebo = IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
                 [PathJoinSubstitution([FindPackageShare('ros_gz_sim'),

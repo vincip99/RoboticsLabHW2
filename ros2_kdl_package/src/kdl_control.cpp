@@ -53,14 +53,13 @@ Eigen::VectorXd KDLController::idCntr(KDL::Frame &_desPos,
     R_des = matrixOrthonormalization(R_des);
     R_e = matrixOrthonormalization(R_e);
 
-
     // Desired and actual Velocity
     Eigen::Vector3d x_dot_des(_desVel.vel.data);
     Eigen::Vector3d x_dot_e(robot_->getEEVelocity().vel.data);
     Eigen::Matrix<double,3,1> omega_des(_desVel.rot.data);
     Eigen::Matrix<double,3,1> omega_e(robot_->getEEVelocity().rot.data);
 
-    // Acceleration
+    // Desired and actual Acceleration
     Eigen::Matrix<double,6,1> x_ddot_des = Eigen::Matrix<double,6,1>::Zero();
     Eigen::Matrix<double,3,1> alpha_des(_desAcc.vel.data);
     Eigen::Matrix<double,3,1> alpha_r_des(_desAcc.rot.data); 
@@ -85,14 +84,4 @@ Eigen::VectorXd KDLController::idCntr(KDL::Frame &_desPos,
     Eigen::Matrix<double,7,1> tau = Eigen::Matrix<double,7,1>::Zero();
     return B*(Jpinv*y) + robot_->getGravity() + robot_->getCoriolis();
     
-}
-
-Eigen::VectorXd KDLController::pd_gravity_cntr(KDL::JntArray &q_des, 
-                            KDL::JntArray &q, KDL::JntArray &q_dot, 
-                            double Kp, double Kd)
-{
-    /*Eigen::VectorXd e = q_des.data - q;
-
-    // Compute gravity
-    return robot_->getGravity() + Kp*e + Kd*q_dot;*/
 }
