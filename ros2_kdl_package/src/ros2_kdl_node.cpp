@@ -387,8 +387,22 @@ class Iiwa_pub_sub : public rclcpp::Node
             else{
                 RCLCPP_INFO_ONCE(this->get_logger(), "Trajectory executed successfully ...");
                 // Send joint velocity commands
-                for (long int i = 0; i < joint_velocities_.data.size(); ++i) {
-                    desired_commands_[i] = joint_torques_(i);
+                if(!(cmd_interface_ == "effort")){
+                    for (long int i = 0; i < joint_velocities_.data.size(); ++i) {
+                        desired_commands_[i] = joint_torques_(i);
+                    }
+                } else{
+                    double Kpp = 150;
+                    double Kpo = 10;
+                    double Kdp = 20;
+                    double Kdo = 10;
+                    KDL::Frame desPos; desPos = robot_->getEEFrame();   // x_des
+                    KDL::Twist desVel; desVel = KDL::Twist(KDL::Vector::Zero(),KDL::Vector::Zero());   // x_dot_des
+                    KDL::Twist desAcc; desAcc = KDL::Twist(KDL::Vector::Zero(),KDL::Vector::Zero());   // X_ddot_des
+                    joint_torques_.data = controller_.idCntr(desPos, desVel, desAcc, Kpp, Kpo, Kdp, Kdo);
+                    for (long int i = 0; i < joint_velocities_.data.size(); ++i) {
+                        desired_commands_[i] = joint_torques_(i);
+                    }
                 }
                 
                 // Create msg and publish
