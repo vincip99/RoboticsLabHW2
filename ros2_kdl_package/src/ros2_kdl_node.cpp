@@ -40,9 +40,29 @@ class Iiwa_pub_sub : public rclcpp::Node
             // declare cmd_interface parameter (position, velocity)
             declare_parameter("cmd_interface", "effort"); // defaults to "position"
             get_parameter("cmd_interface", cmd_interface_);
+
             RCLCPP_INFO(get_logger(),"Current cmd interface is: '%s'", cmd_interface_.c_str());
 
             if (!(cmd_interface_ == "position" || cmd_interface_ == "velocity" || cmd_interface_ == "effort"))
+            {
+                RCLCPP_INFO(get_logger(),"Selected cmd interface is not valid!"); return;
+            }
+
+            declare_parameter("traj_type", "linear");
+
+            declare_parameter("s_type", "trapezoidal");
+            
+            get_parameter("traj_type", traj_type_);
+            RCLCPP_INFO(get_logger(),"Current trajectory type is: '%s'", traj_type_.c_str());
+
+            if (!(traj_type_ == "linear" || traj_type_ == "circular"))
+            {
+                RCLCPP_INFO(get_logger(),"Selected cmd interface is not valid!"); return;
+            }
+
+            RCLCPP_INFO(get_logger(),"Current s type is: '%s'", s_type_.c_str());
+            get_parameter("s_type", s_type_);
+            if (!(s_type_ == "trapezoidal" || s_type_ == "cubic"))
             {
                 RCLCPP_INFO(get_logger(),"Selected cmd interface is not valid!"); return;
             }
@@ -126,15 +146,36 @@ class Iiwa_pub_sub : public rclcpp::Node
             // Plan trajectory
             double traj_duration = 1.5, acc_duration = 0.5, t = 0.0;
             double  traj_radius = 0.15;
-            planner_ = KDLPlanner(traj_duration, acc_duration, init_position, end_position); // currently using trapezoidal velocity profile
-            //planner_ = KDLPlanner(traj_duration, init_position, traj_radius, acc_duration);
+
+            trajectory_point p;
+            if(traj_type_ == "linear"){
+                planner_ = KDLPlanner(traj_duration, acc_duration, init_position, end_position); // currently using trapezoidal velocity profile
+                if(s_type_ == "trapezoidal")
+                {
+                    p = planner_.linear_traj_trapezoidal(t_);
+                }else if(s_type_ == "cubic")
+                {
+                    p = planner_.linear_traj_cubic(t_);
+                }
+            } 
+            else if(traj_type_ == "circular")
+            {
+                planner_ = KDLPlanner(traj_duration, init_position, traj_radius, acc_duration);
+                if(s_type_ == "trapezoidal")
+                {
+                    p = planner_.circular_traj_trapezoidal(t_);
+                }else if(s_type_ == "cubic")
+                {
+                    p = planner_.circular_traj_cubic(t_);
+                }
+            }
 
             // Retrieve the first trajectory point
             //trajectory_point p = planner_.compute_trajectory(t_);
             //trajectory_point p = planner_.circular_traj_cubic(t_);
             //trajectory_point p = planner_.circular_traj_trapezoidal(t_);
             //trajectory_point p = planner_.linear_traj_trapezoidal(t_);
-            trajectory_point p = planner_.linear_traj_cubic(t_);
+            //trajectory_point p = planner_.linear_traj_cubic(t_);
 
             // compute errors
             Eigen::Vector3d error = computeLinearError(p.pos, Eigen::Vector3d(init_cart_pose_.p.data));
@@ -200,9 +241,30 @@ class Iiwa_pub_sub : public rclcpp::Node
                 // Retrieve the trajectory point
                 //trajectory_point p = planner_.compute_trajectory(t_); 
                 //trajectory_point p = planner_.linear_traj_trapezoidal(t_);
-                trajectory_point p = planner_.linear_traj_cubic(t_);
+                //trajectory_point p = planner_.linear_traj_cubic(t_);
                 //trajectory_point p = planner_.circular_traj_trapezoidal(t_);
                 //trajectory_point p = planner_.circular_traj_cubic(t_);
+
+                trajectory_point p;
+                if(traj_type_ == "linear"){
+                    if(s_type_ == "trapezoidal")
+                    {
+                        p = planner_.linear_traj_trapezoidal(t_);
+                    }else if(s_type_ == "cubic")
+                    {
+                        p = planner_.linear_traj_cubic(t_);
+                    }
+                } 
+                else if(traj_type_ == "circular")
+                {
+                    if(s_type_ == "trapezoidal")
+                    {
+                        p = planner_.circular_traj_trapezoidal(t_);
+                    }else if(s_type_ == "cubic")
+                    {
+                        p = planner_.circular_traj_cubic(t_);
+                    }
+                }
 
                 // Compute EE frame acctual position and velocity
                 KDL::Frame cartpos = robot_->getEEFrame();
@@ -288,7 +350,7 @@ class Iiwa_pub_sub : public rclcpp::Node
 
                     // Inverse dynamics to compute control torques
                     //joint_torques_.data = controller_.idCntr(q_des, q_dot_des, q_ddot_des, Kp, Kd);
-                    joint_torques_.data = controller_.idCntr(joint_positions_, joint_velocities_, joint_accelerations_, Kp, Kd) - robot_->getGravity(); 
+                    //joint_torques_.data = controller_.idCntr(joint_positions_, joint_velocities_, joint_accelerations_, Kp, Kd) - robot_->getGravity(); 
 
                     // Filter command torques
                     /*static Eigen::VectorXd torques_filtered = Eigen::VectorXd::Zero(robot_->getNrJnts());
@@ -304,7 +366,7 @@ class Iiwa_pub_sub : public rclcpp::Node
                     double Kpo = 10;
                     double Kdp = 20;
                     double Kdo = 10;
-                    //joint_torques_.data = controller_.idCntr(desPos, desVel, desAcc, Kpp, Kpo, Kdp, Kdo);
+                    joint_torques_.data = controller_.idCntr(desPos, desVel, desAcc, Kpp, Kpo, Kdp, Kdo);
 
                 }
 
@@ -382,6 +444,8 @@ class Iiwa_pub_sub : public rclcpp::Node
                 joint_positions_.data[i] = sensor_msg.position[i];
                 joint_velocities_.data[i] = sensor_msg.velocity[i];
             }
+            // Update KDLrobot structure
+            //robot_->update(toStdVector(joint_positions_.data),toStdVector(joint_velocities_.data));
         }
 
         rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr jointSubscriber_;
@@ -405,7 +469,11 @@ class Iiwa_pub_sub : public rclcpp::Node
         bool joint_state_available_;
         double t_;
         double error_norm;
+
         std::string cmd_interface_;
+        std::string traj_type_;
+        std::string s_type_;
+
         KDL::Frame init_cart_pose_;
         KDL::Twist init_cart_vel_;
 };
