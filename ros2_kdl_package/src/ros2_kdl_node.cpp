@@ -392,6 +392,7 @@ class Iiwa_pub_sub : public rclcpp::Node
                         desired_commands_[i] = joint_torques_(i);
                     }
                 } else{
+                    // Stop at the end of trajectory
                     double Kpp = 150;
                     double Kpo = 10;
                     double Kdp = 20;
