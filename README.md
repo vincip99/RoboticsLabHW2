@@ -1,6 +1,7 @@
-# Homework2_rl2024
+## :package: Homework2_rl2024
 Homework 2 for Robotics Lab 2024/2025
 
+## :hammer: Build
 First build all the packages by using:
 
 ```
@@ -11,7 +12,7 @@ In each terminal you open, source the install directory:
 source install/setup.bash
 ```
 
-# 1. Start Gazebo and spawn the robot using the effort_controller
+## :white_check_mark: Start Gazebo and spawn the robot using the effort_controller
 To launch `iiwa.launch.py` using as command interface "effort" and as controller "effort_controller", run:
 ```
 ros2 launch iiwa_bringup iiwa.launch.py use_sim:="true" command_interface:="effort" robot_controller:="effort_controller"
@@ -31,7 +32,7 @@ ros2 run ros2_kdl_package ros2_kdl_node
 ```
 By default the node publishes joint position commands and sets a trapezoidal-linear trajectory for the robot.
 
-# 2. Run the node using the joint space inverse dynamics controller
+# :white_check_mark: Run the node using the joint space inverse dynamics controller
 
 The joint space inverse dynamics controller is selected by setting cmd_interface:="effort" when running ros2_kdl_node, as follows.
 
@@ -56,7 +57,7 @@ TRAPEZOIDAL-LINEAR:
 ros2 run ros2_kdl_package ros2_kdl_node --ros-args -p s_type:="trapezoidal" -p traj_type:="linear" -p cmd_type:="jnt_id" -p cmd_interface:="effort"
 ```
 
-# 3. Run the node using the cartesian space inverse dynamics controller
+# :white_check_mark: Run the node using the cartesian space inverse dynamics controller
 
 The joint space inverse dynamics controller is selected by setting cmd_interface:="effort" when running ros2_kdl_node, as follows.
 
