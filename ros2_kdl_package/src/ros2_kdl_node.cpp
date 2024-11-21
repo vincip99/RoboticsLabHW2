@@ -12,6 +12,7 @@
 #include <memory>
 
 #include "std_msgs/msg/float64_multi_array.hpp"
+#include "std_msgs/msg/float64.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
 
 #include "rclcpp/rclcpp.hpp"
@@ -24,6 +25,7 @@
  
 using namespace KDL;
 using FloatArray = std_msgs::msg::Float64MultiArray;
+using Float = std_msgs::msg::Float64;
 using namespace std::chrono_literals;
 
 class Iiwa_pub_sub : public rclcpp::Node
@@ -49,7 +51,6 @@ class Iiwa_pub_sub : public rclcpp::Node
             }
 
             declare_parameter("traj_type", "linear");
-
             declare_parameter("s_type", "trapezoidal");
             
             get_parameter("traj_type", traj_type_);
@@ -64,6 +65,15 @@ class Iiwa_pub_sub : public rclcpp::Node
             RCLCPP_INFO(get_logger(),"Current s type is: '%s'", s_type_.c_str());
 
             if (!(s_type_ == "trapezoidal" || s_type_ == "cubic"))
+            {
+                RCLCPP_INFO(get_logger(),"Selected cmd interface is not valid!"); return;
+            }
+
+            declare_parameter("cmd_type", "op_id");
+            get_parameter("cmd_type", cmd_type_);
+            RCLCPP_INFO(get_logger(),"Current control type is: '%s'", cmd_type_.c_str());
+
+            if (!(cmd_type_ == "op_id" || cmd_type_ == "jnt_id"))
             {
                 RCLCPP_INFO(get_logger(),"Selected cmd interface is not valid!"); return;
             }
@@ -148,6 +158,7 @@ class Iiwa_pub_sub : public rclcpp::Node
             double traj_duration = 1.5, acc_duration = 0.5, t = 0.0;
             double  traj_radius = 0.15;
 
+            // Retrieve the first trajectory point
             trajectory_point p;
             if(traj_type_ == "linear"){
                 planner_ = KDLPlanner(traj_duration, acc_duration, init_position, end_position); // currently using trapezoidal velocity profile
@@ -170,13 +181,6 @@ class Iiwa_pub_sub : public rclcpp::Node
                     p = planner_.circular_traj_cubic(t_);
                 }
             }
-
-            // Retrieve the first trajectory point
-            //trajectory_point p = planner_.compute_trajectory(t_);
-            //trajectory_point p = planner_.circular_traj_cubic(t_);
-            //trajectory_point p = planner_.circular_traj_trapezoidal(t_);
-            //trajectory_point p = planner_.linear_traj_trapezoidal(t_);
-            //trajectory_point p = planner_.linear_traj_cubic(t_);
 
             // compute errors
             Eigen::Vector3d error = computeLinearError(p.pos, Eigen::Vector3d(init_cart_pose_.p.data));
@@ -214,6 +218,10 @@ class Iiwa_pub_sub : public rclcpp::Node
                 for (long int i = 0; i < joint_torques_.data.size(); ++i) {
                     desired_commands_[i] = joint_torques_(i);
                 }
+
+                errPublisher_ = this->create_publisher<Float>("/error_topic", 10);
+                timer_e = this->create_wall_timer(std::chrono::milliseconds(100), 
+                                            std::bind(&Iiwa_pub_sub::error_publisher, this));
             }
 
             // Create msg and publish
@@ -240,12 +248,6 @@ class Iiwa_pub_sub : public rclcpp::Node
             if (t_ < total_time){
 
                 // Retrieve the trajectory point
-                //trajectory_point p = planner_.compute_trajectory(t_); 
-                //trajectory_point p = planner_.linear_traj_trapezoidal(t_);
-                //trajectory_point p = planner_.linear_traj_cubic(t_);
-                //trajectory_point p = planner_.circular_traj_trapezoidal(t_);
-                //trajectory_point p = planner_.circular_traj_cubic(t_);
-
                 trajectory_point p;
                 if(traj_type_ == "linear"){
                     if(s_type_ == "trapezoidal")
@@ -274,8 +276,7 @@ class Iiwa_pub_sub : public rclcpp::Node
                 // Compute desired Frame position, velocity and acceleration at current p
                 KDL::Frame desPos; desPos.M = cartpos.M; desPos.p = toKDL(p.pos);   // x_des
                 KDL::Twist desVel; desVel.rot = cartvel.rot; desVel.vel = toKDL(p.vel);   // x_dot_des
-                KDL::Twist desAcc;
-                desAcc = KDL::Twist(KDL::Vector(p.acc[0], p.acc[1], p.acc[2]),KDL::Vector::Zero());   // X_ddot_des
+                KDL::Twist desAcc; desAcc = KDL::Twist(KDL::Vector(p.acc[0], p.acc[1], p.acc[2]),KDL::Vector::Zero());   // X_ddot_des
 
                 // compute errors
                 Eigen::Vector3d error = computeLinearError(p.pos, Eigen::Vector3d(cartpos.p.data));
@@ -300,37 +301,45 @@ class Iiwa_pub_sub : public rclcpp::Node
                 }
                 else if(cmd_interface_ == "effort"){
 
-                    double Kp = 25;
-                    double Kd = 5;
+                    if(cmd_type_ == "jnt_id"){
+                        // Define control gains for proportional (Kp) and derivative (Kd) terms
+                        double Kp = 25;
+                        double Kd = 5;
 
-                    Eigen::Matrix<double,3,3,Eigen::RowMajor> R_des(init_cart_pose_.M.data);
-                    Eigen::Matrix<double,3,3,Eigen::RowMajor> R_e(robot_->getEEFrame().M.data);
-                    R_des = matrixOrthonormalization(R_des);
-                    R_e = matrixOrthonormalization(R_e);
+                        // Ensure proper orientation matrices for desired and current rotations
+                        Eigen::Matrix<double,3,3,Eigen::RowMajor> R_des(init_cart_pose_.M.data);
+                        Eigen::Matrix<double,3,3,Eigen::RowMajor> R_e(robot_->getEEFrame().M.data);
+                        R_des = matrixOrthonormalization(R_des);
+                        R_e = matrixOrthonormalization(R_e);
 
-                    Eigen::Matrix<double,3,1> omega_des(init_cart_vel_.rot.data);
-                    Eigen::Matrix<double,3,1> omega_e(robot_->getEEVelocity().rot.data);
+                        // Compute angular velocity errors
+                        Eigen::Matrix<double,3,1> omega_des(init_cart_vel_.rot.data);
+                        Eigen::Matrix<double,3,1> omega_e(robot_->getEEVelocity().rot.data);
 
-                    // define second order click
-                    Eigen::Vector3d error_dot = computeLinearError(p.vel, Eigen::Vector3d(cartvel.vel.data));
-                    Eigen::Vector3d o_error_dot = computeOrientationVelocityError(omega_des, omega_e, R_des, R_e);
-                    
-                    Vector6d cartacc; cartacc << p.acc + 5*error_dot + 10*error, 0, 0, 0;
-                    joint_accelerations_.data = pseudoinverse(robot_->getEEJacobian().data) * (cartacc
-                                         - robot_->getEEJacDotqDot()*joint_velocities_.data);
-                    // Integrate acceleration to obtain velocity and position
-                    joint_velocities_.data = joint_velocities_.data + joint_accelerations_.data*dt;
-                    joint_positions_.data = joint_positions_.data + joint_velocities_.data*dt;
+                        // Compute velocity errors (linear and rotational)
+                        Eigen::Vector3d error_dot = computeLinearError(p.vel, Eigen::Vector3d(cartvel.vel.data));
+                        Eigen::Vector3d o_error_dot = computeOrientationVelocityError(omega_des, omega_e, R_des, R_e);
+                        
+                        // Compute joint accelerations using the Jacobian pseudo-inverse
+                        Vector6d cartacc; cartacc << p.acc + 5*error_dot + 10*error, 5*o_error_dot + 10*o_error;
+                        joint_accelerations_.data = pseudoinverse(robot_->getEEJacobian().data) * (cartacc
+                                            - robot_->getEEJacDotqDot()*joint_velocities_.data);
 
-                    // Inverse dynamics to compute control torques
-                    joint_torques_.data = controller_.idCntr(joint_positions_, joint_velocities_, joint_accelerations_, Kp, Kd);
+                        // Integrate acceleration to obtain velocity and position
+                        joint_velocities_.data = joint_velocities_.data + joint_accelerations_.data*dt;
+                        joint_positions_.data = joint_positions_.data + joint_velocities_.data*dt;
 
-                    // define joint space inverse kinematics 
-                    double Kpp = 150;
-                    double Kpo = 10;
-                    double Kdp = 20;
-                    double Kdo = 10;
-                    //joint_torques_.data = controller_.idCntr(desPos, desVel, desAcc, Kpp, Kpo, Kdp, Kdo);
+                        // Inverse dynamics to compute control torques
+                        joint_torques_.data = controller_.idCntr(joint_positions_, joint_velocities_, joint_accelerations_, Kp, Kd);
+                    }
+                    else if(cmd_type_ == "op_id"){
+                        // define joint space inverse kinematics 
+                        double Kpp = 150;
+                        double Kpo = 10;
+                        double Kdp = 20;
+                        double Kdo = 10;
+                        joint_torques_.data = controller_.idCntr(desPos, desVel, desAcc, Kpp, Kpo, Kdp, Kdo);
+                    }
 
                 }
 
@@ -354,6 +363,7 @@ class Iiwa_pub_sub : public rclcpp::Node
                     for (long int i = 0; i < joint_torques_.data.size(); ++i) {
                         desired_commands_[i] = joint_torques_(i);
                     }
+                    
                     std::cout << "----------------- Joint states -------------------" << std::endl;
                     std::cout << "joint positions: " << joint_positions_.data.transpose() << std::endl;
                     std::cout << "joint velocities: " << joint_velocities_.data.transpose() << std::endl;
@@ -412,9 +422,17 @@ class Iiwa_pub_sub : public rclcpp::Node
             robot_->update(toStdVector(joint_positions_.data),toStdVector(joint_velocities_.data));
         }
 
+        void error_publisher(){
+            std_msgs::msg::Float64 error_msg;
+            error_msg.data = error_norm;
+            errPublisher_->publish(error_msg);
+        }
+
         rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr jointSubscriber_;
         rclcpp::Publisher<FloatArray>::SharedPtr cmdPublisher_;
+        rclcpp::Publisher<Float>::SharedPtr errPublisher_; 
         rclcpp::TimerBase::SharedPtr timer_; 
+        rclcpp::TimerBase::SharedPtr timer_e; 
         rclcpp::TimerBase::SharedPtr subTimer_;
         rclcpp::Node::SharedPtr node_handle_;
 
@@ -437,6 +455,7 @@ class Iiwa_pub_sub : public rclcpp::Node
         std::string cmd_interface_;
         std::string traj_type_;
         std::string s_type_;
+        std::string cmd_type_;
 
         KDL::Frame init_cart_pose_;
         KDL::Twist init_cart_vel_;
