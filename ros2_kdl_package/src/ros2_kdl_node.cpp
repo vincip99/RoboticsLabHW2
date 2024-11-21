@@ -60,8 +60,9 @@ class Iiwa_pub_sub : public rclcpp::Node
                 RCLCPP_INFO(get_logger(),"Selected cmd interface is not valid!"); return;
             }
 
-            RCLCPP_INFO(get_logger(),"Current s type is: '%s'", s_type_.c_str());
             get_parameter("s_type", s_type_);
+            RCLCPP_INFO(get_logger(),"Current s type is: '%s'", s_type_.c_str());
+
             if (!(s_type_ == "trapezoidal" || s_type_ == "cubic"))
             {
                 RCLCPP_INFO(get_logger(),"Selected cmd interface is not valid!"); return;
@@ -298,33 +299,6 @@ class Iiwa_pub_sub : public rclcpp::Node
                     
                 }
                 else if(cmd_interface_ == "effort"){
-                    // Desired joints references variables
-                    /*KDL::JntArray q_des, q_dot_des, q_ddot_des;
-
-                    // Compute q_des from trjectory with IK
-                    q_des = KDL::JntArray(robot_->getNrJnts());
-                    KDL::Frame desired_pose;
-                    desired_pose.p = KDL::Vector(p.pos.x(), p.pos.y(), p.pos.z());
-                    robot_->getInverseKinematics(desired_pose, q_des);
-                    joint_positions_.data = q_des.data;
-                    
-                    // Compute q_dot_des from trjectory with IK
-                    q_dot_des = KDL::JntArray(robot_->getNrJnts());
-                    Vector6d cartvel; cartvel << p.vel, Eigen::Vector3d::Zero();
-                    KDL::Twist twist = toKDLTwist(cartvel);
-                    robot_->getInverseKinematicsVel(desired_pose, twist, q_des, q_dot_des);
-                    joint_velocities_.data = q_dot_des.data;
-
-                    // Compute q_ddot_des from trjectory with IK
-                    q_ddot_des = KDL::JntArray(robot_->getNrJnts());
-                    Vector6d cartacc; cartacc << p.acc, Eigen::Vector3d::Zero();
-                    q_ddot_des.data = pseudoinverse(robot_->getEEJacobian().data) * (cartacc - robot_->getEEJacDotqDot()*q_dot_des.data);
-
-                    // Filter q_ddot
-                    static Eigen::VectorXd q_ddot_filtered = Eigen::VectorXd::Zero(robot_->getNrJnts());
-                    double alpha = 0.8; // Smoothing factor, 0 < alpha <= 1
-                    q_ddot_filtered = alpha * q_ddot_filtered + (1 - alpha) * q_ddot_des.data;
-                    q_ddot_des.data = q_ddot_filtered;*/
 
                     double Kp = 25;
                     double Kd = 5;
@@ -338,10 +312,10 @@ class Iiwa_pub_sub : public rclcpp::Node
                     Eigen::Matrix<double,3,1> omega_e(robot_->getEEVelocity().rot.data);
 
                     // define second order click
-                    Eigen::Vector3d error_dot = computeLinearError(p.vel, Eigen::Vector3d(desVel.vel.data));
+                    Eigen::Vector3d error_dot = computeLinearError(p.vel, Eigen::Vector3d(cartvel.vel.data));
                     Eigen::Vector3d o_error_dot = computeOrientationVelocityError(omega_des, omega_e, R_des, R_e);
                     
-                    Vector6d cartacc; cartacc << p.acc + 5*error_dot + 10*error, 5*o_error_dot + 10*o_error;
+                    Vector6d cartacc; cartacc << p.acc + 5*error_dot + 10*error, 0, 0, 0;
                     joint_accelerations_.data = pseudoinverse(robot_->getEEJacobian().data) * (cartacc
                                          - robot_->getEEJacDotqDot()*joint_velocities_.data);
                     // Integrate acceleration to obtain velocity and position
@@ -349,24 +323,14 @@ class Iiwa_pub_sub : public rclcpp::Node
                     joint_positions_.data = joint_positions_.data + joint_velocities_.data*dt;
 
                     // Inverse dynamics to compute control torques
-                    //joint_torques_.data = controller_.idCntr(q_des, q_dot_des, q_ddot_des, Kp, Kd);
-                    //joint_torques_.data = controller_.idCntr(joint_positions_, joint_velocities_, joint_accelerations_, Kp, Kd) - robot_->getGravity(); 
-
-                    // Filter command torques
-                    /*static Eigen::VectorXd torques_filtered = Eigen::VectorXd::Zero(robot_->getNrJnts());
-                    double beta = 0.9; // Smoothing factor, 0 < alpha <= 1
-                    torques_filtered = beta * torques_filtered + (1 - beta) * joint_torques_.data;
-                    joint_torques_.data = torques_filtered;*/
-
-                    /*                     KDL::Twist vel = toKDLTwist(cartvel);
-                    KDL::Twist acc = toKDLTwist(cartacc); */
+                    joint_torques_.data = controller_.idCntr(joint_positions_, joint_velocities_, joint_accelerations_, Kp, Kd);
 
                     // define joint space inverse kinematics 
                     double Kpp = 150;
                     double Kpo = 10;
                     double Kdp = 20;
                     double Kdo = 10;
-                    joint_torques_.data = controller_.idCntr(desPos, desVel, desAcc, Kpp, Kpo, Kdp, Kdo);
+                    //joint_torques_.data = controller_.idCntr(desPos, desVel, desAcc, Kpp, Kpo, Kdp, Kdo);
 
                 }
 
@@ -445,7 +409,7 @@ class Iiwa_pub_sub : public rclcpp::Node
                 joint_velocities_.data[i] = sensor_msg.velocity[i];
             }
             // Update KDLrobot structure
-            //robot_->update(toStdVector(joint_positions_.data),toStdVector(joint_velocities_.data));
+            robot_->update(toStdVector(joint_positions_.data),toStdVector(joint_velocities_.data));
         }
 
         rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr jointSubscriber_;
