@@ -34,36 +34,31 @@ class Iiwa_pub_sub : public rclcpp::Node
         Iiwa_pub_sub()
         : Node("ros2_kdl_node"), 
         node_handle_(std::shared_ptr<Iiwa_pub_sub>(this))
-        {   
+        {
             //////////////////////////////////////////
             // Retreive urdf and create roboy obj   //
             //////////////////////////////////////////
 
-            // declare cmd_interface parameter (position, velocity)
+            // declare cmd_interface parameter (position, velocity, effort)
             declare_parameter("cmd_interface", "effort"); // defaults to "position"
             get_parameter("cmd_interface", cmd_interface_);
-
             RCLCPP_INFO(get_logger(),"Current cmd interface is: '%s'", cmd_interface_.c_str());
-
             if (!(cmd_interface_ == "position" || cmd_interface_ == "velocity" || cmd_interface_ == "effort"))
             {
                 RCLCPP_INFO(get_logger(),"Selected cmd interface is not valid!"); return;
             }
 
             declare_parameter("traj_type", "linear");
-            declare_parameter("s_type", "trapezoidal");
-            
             get_parameter("traj_type", traj_type_);
             RCLCPP_INFO(get_logger(),"Current trajectory type is: '%s'", traj_type_.c_str());
-
             if (!(traj_type_ == "linear" || traj_type_ == "circular"))
             {
                 RCLCPP_INFO(get_logger(),"Selected cmd interface is not valid!"); return;
             }
 
+            declare_parameter("s_type", "trapezoidal");
             get_parameter("s_type", s_type_);
             RCLCPP_INFO(get_logger(),"Current s type is: '%s'", s_type_.c_str());
-
             if (!(s_type_ == "trapezoidal" || s_type_ == "cubic"))
             {
                 RCLCPP_INFO(get_logger(),"Selected cmd interface is not valid!"); return;
@@ -72,7 +67,6 @@ class Iiwa_pub_sub : public rclcpp::Node
             declare_parameter("cmd_type", "op_id");
             get_parameter("cmd_type", cmd_type_);
             RCLCPP_INFO(get_logger(),"Current control type is: '%s'", cmd_type_.c_str());
-
             if (!(cmd_type_ == "op_id" || cmd_type_ == "jnt_id"))
             {
                 RCLCPP_INFO(get_logger(),"Selected cmd interface is not valid!"); return;
@@ -80,7 +74,7 @@ class Iiwa_pub_sub : public rclcpp::Node
 
             iteration_ = 0;
             t_ = 0;
-            joint_state_available_ = false; 
+            joint_state_available_ = false;
 
             // retrieve robot_description param
             auto parameters_client = std::make_shared<rclcpp::SyncParametersClient>(node_handle_, "robot_state_publisher");
@@ -128,9 +122,9 @@ class Iiwa_pub_sub : public rclcpp::Node
             }
 
             // Update KDLrobot object
-            robot_->update(toStdVector(joint_positions_.data),toStdVector(joint_velocities_.data)); // Update with new joint pos and vel
-            KDL::Frame f_T_ee = KDL::Frame::Identity();
-            robot_->addEE(f_T_ee);  // Add the end effector frame
+            // robot_->update(toStdVector(joint_positions_.data),toStdVector(joint_velocities_.data)); // Update with new joint pos and vel
+            // KDL::Frame f_T_ee = KDL::Frame::Identity();
+            // robot_->addEE(f_T_ee);  // Add the end effector frame
             robot_->update(toStdVector(joint_positions_.data),toStdVector(joint_velocities_.data));
 
             // Compute EE frame
@@ -142,24 +136,21 @@ class Iiwa_pub_sub : public rclcpp::Node
             // Compute IK
             KDL::JntArray q(nj);
             robot_->getInverseKinematics(init_cart_pose_, q);
-            // std::cout << "The inverse kinematics returned: " <<std::endl; 
-            // std::cout << q.data <<std::endl;
 
             // Initialize controller
             controller_ = KDLController(*robot_);
 
             // EE's trajectory initial position (just an offset)
-            Eigen::Vector3d init_position(Eigen::Vector3d(init_cart_pose_.p.data) - Eigen::Vector3d(0,0,0.1));
+            Eigen::Vector3d init_position(Eigen::Vector3d(init_cart_pose_.p.data));
 
             // EE's trajectory end position (just opposite y)
             Eigen::Vector3d end_position; end_position << init_position[0], -init_position[1], init_position[2];
 
             // Plan trajectory
-            double traj_duration = 1.5, acc_duration = 0.5, t = 0.0;
+            double traj_duration = 1.5, acc_duration = 0.5;
             double  traj_radius = 0.15;
 
             // Retrieve the first trajectory point
-            trajectory_point p;
             if(traj_type_ == "linear"){
                 planner_ = KDLPlanner(traj_duration, acc_duration, init_position, end_position); // currently using trapezoidal velocity profile
                 if(s_type_ == "trapezoidal")
@@ -183,8 +174,8 @@ class Iiwa_pub_sub : public rclcpp::Node
             }
 
             // compute errors
-            Eigen::Vector3d error = computeLinearError(p.pos, Eigen::Vector3d(init_cart_pose_.p.data));
-            //std::cout << "The initial error is : " << error << std::endl;
+            error = computeLinearError(p.pos, Eigen::Vector3d(init_cart_pose_.p.data));
+            std::cout << "The initial error is : " << error << std::endl;
             
             if(cmd_interface_ == "position"){
                 // Create cmd publisher
@@ -247,8 +238,7 @@ class Iiwa_pub_sub : public rclcpp::Node
 
             if (t_ < total_time){
 
-                // Retrieve the trajectory point
-                trajectory_point p;
+                // Retrieve the trajectory point based on the trajectory type
                 if(traj_type_ == "linear"){
                     if(s_type_ == "trapezoidal")
                     {
@@ -270,23 +260,24 @@ class Iiwa_pub_sub : public rclcpp::Node
                 }
 
                 // Compute EE frame acctual position and velocity
-                KDL::Frame cartpos = robot_->getEEFrame();
-                KDL::Twist cartvel = robot_->getEEVelocity();
+                cart_pos = robot_->getEEFrame();  // x_e
+                cart_vel = robot_->getEEVelocity();   // x_dot_e
 
-                // Compute desired Frame position, velocity and acceleration at current p
-                KDL::Frame desPos; desPos.M = cartpos.M; desPos.p = toKDL(p.pos);   // x_des
-                KDL::Twist desVel; desVel.rot = cartvel.rot; desVel.vel = toKDL(p.vel);   // x_dot_des
-                KDL::Twist desAcc; desAcc = KDL::Twist(KDL::Vector(p.acc[0], p.acc[1], p.acc[2]),KDL::Vector::Zero());   // X_ddot_des
+                // Compute desired Frame position, velocity and acceleration at current point p
+                des_pos.M = init_cart_pose_.M; des_pos.p = toKDL(p.pos);   // x_des
+                des_vel.rot = init_cart_vel_.rot; des_vel.vel = toKDL(p.vel);   // x_dot_des
+                des_acc = KDL::Twist(KDL::Vector(p.acc[0], p.acc[1], p.acc[2]),KDL::Vector::Zero());   // X_ddot_des
 
                 // compute errors
-                Eigen::Vector3d error = computeLinearError(p.pos, Eigen::Vector3d(cartpos.p.data));
-                Eigen::Vector3d o_error = computeOrientationError(toEigen(init_cart_pose_.M), toEigen(cartpos.M));
+                error = computeLinearError(p.pos, Eigen::Vector3d(cart_pos.p.data));
+                o_error = computeOrientationError(toEigen(init_cart_pose_.M), toEigen(cart_pos.M));
                 std::cout << "The error norm is : " << error.norm() << std::endl;
                 error_norm = error.norm();
 
+                // Switch controller based on the cmd_interface_ parameter
                 if(cmd_interface_ == "position"){
                     // Next Frame
-                    KDL::Frame nextFrame; nextFrame.M = cartpos.M; nextFrame.p = cartpos.p + (toKDL(p.vel) + toKDL(1*error))*dt; 
+                    KDL::Frame nextFrame; nextFrame.M = cart_pos.M; nextFrame.p = cart_pos.p + (toKDL(p.vel) + toKDL(1*error))*dt;
 
                     // Compute IK
                     robot_->getInverseKinematics(nextFrame, joint_positions_);
@@ -297,14 +288,11 @@ class Iiwa_pub_sub : public rclcpp::Node
                     Vector6d cartvel; cartvel << p.vel + 5*error, o_error;
                     joint_velocities_.data = pseudoinverse(robot_->getEEJacobian().data)*cartvel;
                     joint_positions_.data = joint_positions_.data + joint_velocities_.data*dt;
-                    
+
                 }
                 else if(cmd_interface_ == "effort"){
 
                     if(cmd_type_ == "jnt_id"){
-                        // Define control gains for proportional (Kp) and derivative (Kd) terms
-                        double Kp = 25;
-                        double Kd = 5;
 
                         // Ensure proper orientation matrices for desired and current rotations
                         Eigen::Matrix<double,3,3,Eigen::RowMajor> R_des(init_cart_pose_.M.data);
@@ -313,13 +301,13 @@ class Iiwa_pub_sub : public rclcpp::Node
                         R_e = matrixOrthonormalization(R_e);
 
                         // Compute angular velocity errors
-                        Eigen::Matrix<double,3,1> omega_des(init_cart_vel_.rot.data);
+                        Eigen::Matrix<double,3,1> omega_des(init_cart_vel_.rot.data);Eigen::Matrix<double,3,1> omega_des(init_cart_vel_.rot.data);
                         Eigen::Matrix<double,3,1> omega_e(robot_->getEEVelocity().rot.data);
 
                         // Compute velocity errors (linear and rotational)
-                        Eigen::Vector3d error_dot = computeLinearError(p.vel, Eigen::Vector3d(cartvel.vel.data));
+                        Eigen::Vector3d error_dot = computeLinearError(p.vel, Eigen::Vector3d(cart_vel.vel.data));
                         Eigen::Vector3d o_error_dot = computeOrientationVelocityError(omega_des, omega_e, R_des, R_e);
-                        
+
                         // Compute joint accelerations using the Jacobian pseudo-inverse
                         Vector6d cartacc; cartacc << p.acc + 5*error_dot + 10*error, 5*o_error_dot + 10*o_error;
                         joint_accelerations_.data = pseudoinverse(robot_->getEEJacobian().data) * (cartacc
@@ -334,11 +322,7 @@ class Iiwa_pub_sub : public rclcpp::Node
                     }
                     else if(cmd_type_ == "op_id"){
                         // define joint space inverse kinematics 
-                        double Kpp = 150;
-                        double Kpo = 10;
-                        double Kdp = 20;
-                        double Kdo = 10;
-                        joint_torques_.data = controller_.idCntr(desPos, desVel, desAcc, Kpp, Kpo, Kdp, Kdo);
+                        joint_torques_.data = controller_.idCntr(des_pos, des_vel, des_acc, Kpp, Kpo, Kdp, Kdo);
                     }
 
                 }
@@ -363,7 +347,7 @@ class Iiwa_pub_sub : public rclcpp::Node
                     for (long int i = 0; i < joint_torques_.data.size(); ++i) {
                         desired_commands_[i] = joint_torques_(i);
                     }
-                    
+
                     std::cout << "----------------- Joint states -------------------" << std::endl;
                     std::cout << "joint positions: " << joint_positions_.data.transpose() << std::endl;
                     std::cout << "joint velocities: " << joint_velocities_.data.transpose() << std::endl;
@@ -393,10 +377,6 @@ class Iiwa_pub_sub : public rclcpp::Node
                     }
                 } else{
                     // Stop at the end of trajectory
-                    double Kpp = 150;
-                    double Kpo = 10;
-                    double Kdp = 20;
-                    double Kdo = 10;
                     KDL::Frame desPos; desPos = robot_->getEEFrame();   // x_des
                     KDL::Twist desVel; desVel = KDL::Twist(KDL::Vector::Zero(),KDL::Vector::Zero());   // x_dot_des
                     KDL::Twist desAcc; desAcc = KDL::Twist(KDL::Vector::Zero(),KDL::Vector::Zero());   // X_ddot_des
@@ -451,16 +431,35 @@ class Iiwa_pub_sub : public rclcpp::Node
         rclcpp::TimerBase::SharedPtr subTimer_;
         rclcpp::Node::SharedPtr node_handle_;
 
-        std::vector<double> desired_commands_ = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+        ///////////////////////////////
+        // Robot
+        ///////////////////////////////
+        // joints states
         KDL::JntArray joint_positions_;
         KDL::JntArray joint_velocities_;
         KDL::JntArray joint_accelerations_;
-        
         KDL::JntArray joint_torques_;
 
+        // end effector states
+        KDL::Frame cart_pos;
+        KDL::Twist cart_vel;
+
+        // desired values
+        std::vector<double> desired_commands_ = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+
+        KDL::Frame des_pos;
+        KDL::Twist des_vel;
+        KDL::Twist des_acc;
+
+        // objects
         std::shared_ptr<KDLRobot> robot_;
         KDLPlanner planner_;
         KDLController controller_;
+
+        trajectory_point p;
+
+        Eigen::Vector3d error;
+        Eigen::Vector3d o_error;
 
         int iteration_;
         bool joint_state_available_;
@@ -474,6 +473,19 @@ class Iiwa_pub_sub : public rclcpp::Node
 
         KDL::Frame init_cart_pose_;
         KDL::Twist init_cart_vel_;
+
+        ////////////////////
+        // Gains 
+        ////////////////////
+        // Define control gains for proportional (Kp) and derivative (Kd) terms
+        double Kp = 25;
+        double Kd = 5;
+
+        // define op space inverse kinematics 
+        double Kpp = 150;
+        double Kpo = 10;
+        double Kdp = 20;
+        double Kdo = 10;
 };
 
  

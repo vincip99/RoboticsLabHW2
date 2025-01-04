@@ -13,21 +13,24 @@ KDLRobot::KDLRobot(){}
  */
 KDLRobot::KDLRobot(KDL::Tree &robot_tree)
 {
+    // Create chain with n joints
     createChain(robot_tree);
     n_ = chain_.getNrOfJoints();
-    // Create chain with n joints
 
-    grav_ = KDL::JntArray(n_);
+    // Init variables
+    jntPos_ = KDL::JntArray(n_);
+    jntVel_ = KDL::JntArray(n_);
     s_J_ee_ = KDL::Jacobian(n_);
     b_J_ee_ = KDL::Jacobian(n_);
     s_J_dot_ee_ = KDL::Jacobian(n_);
     b_J_dot_ee_ = KDL::Jacobian(n_);
+
     s_J_ee_.data.setZero();
     b_J_ee_.data.setZero();
     s_J_dot_ee_.data.setZero();
     b_J_dot_ee_.data.setZero();
-    jntArray_ = KDL::JntArray(n_);
-    jntVel_ = KDL::JntArray(n_);
+
+    grav_ = KDL::JntArray(n_);
     coriol_ = KDL::JntArray(n_);
     dynParam_ = new KDL::ChainDynParam(chain_,KDL::Vector(0,0,-9.81));
     jacSol_ = new KDL::ChainJntToJacSolver(chain_);
@@ -39,8 +42,6 @@ KDLRobot::KDLRobot(KDL::Tree &robot_tree)
     grav_.resize(n_);
     q_min_.data.resize(n_);
     q_max_.data.resize(n_);
-    // q_min_.data << -2.96,-2.09,-2.96,-2.09,-2.96,-2.09,-2.96; //-2*M_PI,-2*M_PI; // TODO: read from file
-    // q_max_.data <<  2.96,2.09,2.96,2.09,2.96,2.09,2.96; //2*M_PI, 2*M_PI; // TODO: read from file          
   
     ikVelSol_ = new KDL::ChainIkSolverVel_pinv(chain_); //Inverse velocity solver 
 }
@@ -52,7 +53,7 @@ KDLRobot::KDLRobot(KDL::Tree &robot_tree)
  * @param [q] [joint array to store ik data].
  */
 void KDLRobot::getInverseKinematics(KDL::Frame &f, KDL::JntArray &q){
-    int ret = ikSol_->CartToJnt(jntArray_,f,q);
+    int ret = ikSol_->CartToJnt(jntPos_,f,q);
     if(ret != 0) {std::cout << ikSol_->strError(ret) << std::endl;}; // If IK error
 }
 
@@ -91,19 +92,19 @@ void KDLRobot::update(std::vector<double> _jnt_values, std::vector<double> _jnt_
     KDL::Jacobian s_J_f(7);
     KDL::Jacobian s_J_dot_f(7);
     KDL::FrameVel s_Fv_f;
-    KDL::JntArrayVel jntVel(jntArray_,jntVel_);
+    KDL::JntArrayVel jntVel(jntPos_,jntVel_);
     KDL::Twist s_J_dot_q_dot_f;
 
     // joints space
-    err = dynParam_->JntToMass(jntArray_, jsim_); if(err != 0) {std::cout << strError(err);}; // Compute Inertia matrix
-    err = dynParam_->JntToCoriolis(jntArray_, jntVel_, coriol_); if(err != 0) {std::cout << strError(err);};  // Compute coriolis
-    err = dynParam_->JntToGravity(jntArray_, grav_); if(err != 0) {std::cout << strError(err);};    // Compute gravity
+    err = dynParam_->JntToMass(jntPos_, jsim_); if(err != 0) {std::cout << strError(err);}; // Compute Inertia matrix
+    err = dynParam_->JntToCoriolis(jntPos_, jntVel_, coriol_); if(err != 0) {std::cout << strError(err);};  // Compute coriolis
+    err = dynParam_->JntToGravity(jntPos_, grav_); if(err != 0) {std::cout << strError(err);};    // Compute gravity
 
     // robot flange
     err = fkVelSol_->JntToCart(jntVel, s_Fv_f); if(err != 0) {std::cout << strError(err);};
     s_T_f = s_Fv_f.GetTwist();
     s_F_f = s_Fv_f.GetFrame();
-    err = jacSol_->JntToJac(jntArray_, s_J_f); if(err != 0) {std::cout << strError(err);};
+    err = jacSol_->JntToJac(jntPos_, s_J_f); if(err != 0) {std::cout << strError(err);};
     err = jntJacDotSol_->JntToJacDot(jntVel, s_J_dot_q_dot_f); if(err != 0) {std::cout << strError(err);};
     err = jntJacDotSol_->JntToJacDot(jntVel, s_J_dot_f); if(err != 0) {std::cout << strError(err);};
 
@@ -136,22 +137,12 @@ void KDLRobot::createChain(KDL::Tree &robot_tree)
     std::cout << "and " << chain_.getNrOfSegments() << " segments" << std::endl;
 }
 
-unsigned int KDLRobot::getNrJnts()
-{
-    return n_;
-}
-
-unsigned int KDLRobot::getNrSgmts()
-{
-    return chain_.getNrOfSegments();
-}
-
 ////////////////////////////////////////////////////////////////////////////////
 //                                 JOINTS                                     //
 ////////////////////////////////////////////////////////////////////////////////
 
 /**
- * @brief [Set object's joint positions(jntArray_) and joint velocities(jntVel_)].
+ * @brief [Set object's joint positions(jntPos_) and joint velocities(jntVel_)].
  * 
  * @param [_jnt_pos] [vector of joint positions to assign to kdl robot].
  * @param [_jnt_vel] [vector of joint velocities to assign to kdl robot].
@@ -162,25 +153,9 @@ void KDLRobot::updateJnts(std::vector<double> _jnt_pos, std::vector<double> _jnt
 {
     for (unsigned int i = 0; i < n_; i++)
     {
-        jntArray_(i) = _jnt_pos[i];
+        jntPos_(i) = _jnt_pos[i];
         jntVel_(i) = _jnt_vel[i];
     }
-}
-
-/**
- * @brief [get joint positions (jntArray)]
- */
-Eigen::VectorXd KDLRobot::getJntValues()
-{
-    return jntArray_.data;
-}
-
-/**
- * @brief [get joint velocities (jntVel)]
- */
-Eigen::VectorXd KDLRobot::getJntVelocities()
-{
-    return jntVel_.data;
 }
 
 Eigen::MatrixXd KDLRobot::getJntLimits()
@@ -192,21 +167,6 @@ Eigen::MatrixXd KDLRobot::getJntLimits()
     jntLim.col(1) = q_max_.data;
 
     return jntLim;
-}
-
-Eigen::MatrixXd KDLRobot::getJsim()
-{
-    return jsim_.data;
-}
-
-Eigen::VectorXd KDLRobot::getCoriolis()
-{
-    return coriol_.data;
-}
-
-Eigen::VectorXd KDLRobot::getGravity()
-{
-    return grav_.data;
 }
 
 Eigen::VectorXd KDLRobot::getID(const KDL::JntArray &q,
@@ -228,48 +188,10 @@ Eigen::VectorXd KDLRobot::getID(const KDL::JntArray &q,
 //                              END-EFFECTOR                                  //
 ////////////////////////////////////////////////////////////////////////////////
 
-KDL::Frame KDLRobot::getEEFrame()
-{
-    return s_F_ee_;
-}
-
-
-KDL::Twist KDLRobot::getEEVelocity()
-{
-    return s_V_ee_;
-}
-
-KDL::Twist KDLRobot::getEEBodyVelocity()
-{
-    return s_V_ee_;
-}
-
-KDL::Jacobian KDLRobot::getEEJacobian()
-{
-    return s_J_ee_;
-}
-
-KDL::Jacobian KDLRobot::getEEBodyJacobian()
-{
-    //    KDL::Frame ee_F_s = this->getEEPose().Inverse();
-    //    KDL::Vector pkdl = ee_F_s.p;
-    //    KDL::Rotation M = ee_F_s.M;
-    //    std::cout << adjoint(toEigen(pkdl),toEigen(M))*s_J_ee_.data << std::endl;
-    //    s_J_ee_.changeRefFrame(ee_F_s);
-    //    std::cout << s_J_ee_.data << std::endl;
-    //    return adjoint(toEigen(pkdl),toEigen(M))*s_J_ee_.data;
-    return b_J_ee_;
-}
-
-Eigen::MatrixXd KDLRobot::getEEJacDotqDot()
-{
-    return s_J_dot_ee_.data;
-}
-
 void KDLRobot::addEE(const KDL::Frame &_f_F_ee)
 {
     f_F_ee_ = _f_F_ee;
-    this->update(toStdVector(this->jntArray_.data), toStdVector(this->jntVel_.data));
+    this->update(toStdVector(this->jntPos_.data), toStdVector(this->jntVel_.data));
 }
 
 ////////////////////////////////////////////////////////////////////////////////

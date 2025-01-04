@@ -13,7 +13,7 @@ Eigen::VectorXd KDLController::idCntr(KDL::JntArray &_qd,
                                       double _Kp, double _Kd)
 {
     // read current state
-    Eigen::VectorXd q = robot_->getJntValues();
+    Eigen::VectorXd q = robot_->getJntPositions();
     Eigen::VectorXd dq = robot_->getJntVelocities();
 
     // calculate errors
@@ -87,5 +87,5 @@ Eigen::VectorXd KDLController::idCntr(KDL::Frame &_desPos,
 
     // Return the computed joint torques (Optionally include gravity compensation)
     return B*(Jpinv*y) + robot_->getCoriolis(); //+ robot_->getGravity();
-    
+
 }

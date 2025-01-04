@@ -1,11 +1,11 @@
-## :package: Homework2_rl2024
-Homework 2 for Robotics Lab 2024/2025
+# :package: Homework2_rl2024
+Homework 2 for Robotics Lab 2024/2025: control a manipulator to follow a trajectory
 
 ## :hammer: Build
 First build all the packages by using:
 
 ```
-colcon build --packages-select orocos_kdl iiwa_description external_torque_sensor_broadcaster impedance_controller iiwa_bringup ros2_kdl_package python_orocos_kdl 
+colcon build --packages-select iiwa_description iiwa_bringup ros2_kdl_package
 ```
 In each terminal you open, source the install directory:
 ```
@@ -25,12 +25,12 @@ The arguments used are:
  After running the command provided above, as soon as Gazebo opens, PRESS THE PLAY BUTTON in the lower left corner.This will ensure proper loading and valid activation of the controllers!!!
 
 
- 
 In another terminal run the node, using the following command:
 ```
 ros2 run ros2_kdl_package ros2_kdl_node
 ```
 By default the node publishes joint position commands and sets a trapezoidal-linear trajectory for the robot.
+
 
 # :white_check_mark: Run the node using the joint space inverse dynamics controller
 
@@ -38,21 +38,20 @@ The joint space inverse dynamics controller is selected by setting cmd_interface
 
 To set a specific trajecory for the joint space controller, run:
 
-CUBIC-CIRCULAR:
+### CIRCULAR trajectory with CUBIC profile:
 ```
 ros2 run ros2_kdl_package ros2_kdl_node --ros-args -p s_type:="cubic" -p traj_type:="circular" -p cmd_type:="jnt_id" -p cmd_interface:="effort"
 ```
-TRAPEZOIDAL-CIRCULAR:
+### CIRCULAR trajectory with TRAPEZOIDAL profile:
 ```
 ros2 run ros2_kdl_package ros2_kdl_node --ros-args -p s_type:="trapezoidal" -p traj_type:="circular" -p cmd_type:="jnt_id" -p cmd_interface:="effort"
 ```
 
-CUBIC-LINEAR:
+### RECTILINEAR trajectory with CUBIC profile:
 ```
 ros2 run ros2_kdl_package ros2_kdl_node --ros-args -p s_type:="cubic" -p traj_type:="linear" -p cmd_type:="jnt_id" -p cmd_interface:="effort"
 ```
-
-TRAPEZOIDAL-LINEAR:
+### RECTILINEAR trajectory with TRAPEZOIDAL profile:
 ```
 ros2 run ros2_kdl_package ros2_kdl_node --ros-args -p s_type:="trapezoidal" -p traj_type:="linear" -p cmd_type:="jnt_id" -p cmd_interface:="effort"
 ```
@@ -63,21 +62,20 @@ The joint space inverse dynamics controller is selected by setting cmd_interface
 
 To set a specific trajecory for the cartesian space controller, run:
 
-CUBIC-CIRCULAR:
+### CIRCULAR trajectory with CUBIC profile:
 ```
 ros2 run ros2_kdl_package ros2_kdl_node --ros-args -p s_type:="cubic" -p traj_type:="circular" -p cmd_type:="op_id" -p cmd_interface:="effort"
 ```
-TRAPEZOIDAL-CIRCULAR:
+### CIRCULAR trajectory with TRAPEZOIDAL profile:
 ```
 ros2 run ros2_kdl_package ros2_kdl_node --ros-args -p s_type:="trapezoidal" -p traj_type:="circular" -p cmd_type:="op_id" -p cmd_interface:="effort"
 ```
 
-CUBIC-LINEAR:
+### RECTILINEAR trajectory with CUBIC profile:
 ```
 ros2 run ros2_kdl_package ros2_kdl_node --ros-args -p s_type:="cubic" -p traj_type:="linear" -p cmd_type:="op_id" -p cmd_interface:="effort"
 ```
-
-TRAPEZOIDAL-LINEAR:
+### RECTLINEAR trajectory with TRAPEZOIDAL profile:
 ```
 ros2 run ros2_kdl_package ros2_kdl_node --ros-args -p s_type:="trapezoidal" -p traj_type:="linear" -p cmd_type:="op_id" -p cmd_interface:="effort"
 ```

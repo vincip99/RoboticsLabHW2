@@ -32,32 +32,35 @@ public:
     KDLRobot();
     KDLRobot(KDL::Tree &robot_tree);
     void update(std::vector<double> _jnt_values,std::vector<double> _jnt_vel);
-    unsigned int getNrJnts();
-    unsigned int getNrSgmts();
     void addEE(const KDL::Frame &_f_tip);
     void setJntLimits(KDL::JntArray &q_low, KDL::JntArray &q_high);
 
-    // joints
+    // Chain getter functions
+    unsigned int getNrJnts() const {return n_;}
+    unsigned int getNrSgmts() const {return chain_.getNrOfSegments();}
+
+    // Joints getter functions
+    Eigen::VectorXd getJntPositions() const {return jntPos_.data;}
+    Eigen::VectorXd getJntVelocities() const {return jntVel_.data;}
     Eigen::MatrixXd getJntLimits();
-    Eigen::MatrixXd getJsim();
-    Eigen::MatrixXd getCoriolisMatrix();
-    Eigen::VectorXd getCoriolis();
-    Eigen::VectorXd getGravity();
-    Eigen::VectorXd getJntValues();
-    Eigen::VectorXd getJntVelocities();
-    
+
+    // Dynamics getter functions
+    Eigen::MatrixXd getJsim() const {return jsim_.data;}
+    Eigen::VectorXd getCoriolis() const {return coriol_.data;}
+    Eigen::VectorXd getGravity() const {return grav_.data;}
     Eigen::VectorXd getID(const KDL::JntArray &q,
                           const KDL::JntArray &q_dot,
                           const KDL::JntArray &q_dotdot,
                           const KDL::Wrenches &f_ext);
 
-    // end-effector
-    KDL::Frame getEEFrame();
-    KDL::Twist getEEVelocity();
-    KDL::Twist getEEBodyVelocity();
-    KDL::Jacobian getEEJacobian();
-    KDL::Jacobian getEEBodyJacobian();
-    Eigen::MatrixXd getEEJacDotqDot();
+    // End-effector getter functions
+    KDL::Frame getEEFrame() const {return s_F_ee_;}
+    KDL::Twist getEEVelocity() const {return s_V_ee_;}
+
+    // Jacobians getter functions
+    KDL::Jacobian getEEJacobian() const {return s_J_ee_;}
+    KDL::Jacobian getEEBodyJacobian() const {return b_J_ee_;}
+    Eigen::MatrixXd getEEJacDotqDot()const { return s_J_dot_ee_.data;}
 
     // inverse kinematics
     void getInverseKinematics(KDL::Frame &f, KDL::JntArray &q);
@@ -69,25 +72,28 @@ private:
     unsigned int n_;
     void createChain(KDL::Tree &robot_tree);
     KDL::Chain chain_;
+
     KDL::ChainDynParam* dynParam_;
     KDL::ChainJntToJacSolver* jacSol_;
     KDL::ChainFkSolverPos_recursive* fkSol_;
     KDL::ChainFkSolverVel_recursive* fkVelSol_;
-    KDL::ChainIkSolverVel_pinv* ikVelSol_;
     KDL::ChainIkSolverPos_NR_JL* ikSol_;
+    KDL::ChainIkSolverVel_pinv* ikVelSol_;
  
     KDL::ChainJntToJacDotSolver* jntJacDotSol_;
     KDL::ChainIdSolver_RNE* idSolver_;
 
     // joints
     void updateJnts(std::vector<double> _jnt_values, std::vector<double> _jnt_vel);
-    KDL::JntSpaceInertiaMatrix jsim_;
-    KDL::JntArray jntArray_;
-    KDL::JntArray jntVel_;
-    KDL::JntArray coriol_;
-    KDL::JntArray grav_;
-    KDL::JntArray q_min_;
-    KDL::JntArray q_max_;
+
+    KDL::JntArray jntPos_;          // joint positions
+    KDL::JntArray jntVel_;          // joint velocities
+    KDL::JntArray q_min_;           // joint positions lower limits
+    KDL::JntArray q_max_;           // joint positions upper limits
+
+    KDL::JntSpaceInertiaMatrix jsim_;   // inertia matrix
+    KDL::JntArray coriol_;              // coriolis matrix
+    KDL::JntArray grav_;                // gravity vector
 
     // end-effector
     KDL::Frame f_F_ee_;             // end-effector frame in flange frame

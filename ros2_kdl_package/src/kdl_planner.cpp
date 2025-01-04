@@ -140,7 +140,7 @@ trajectory_point KDLPlanner::compute_trajectory(double time)
 
 /**
  * @brief [trapezoidal velocity profile function].
- * 
+ *
  * @param [t] [current time at which the curvilinear abscissa is computed].
  * @param [t_c] [cruise time].
  * @param [s] [curvilinear abscissa]
@@ -175,7 +175,7 @@ void KDLPlanner::trapezoidal_vel(double t, double t_c, double &s, double &s_dot,
 
 /**
  * @brief [cubic polynomial function]
- * 
+ *
  * @param [t] [current time at which the curvilinear abscissa is computed].
  * @param [s] [curvilinear abscissa]
  * @param [s_dot] [velocity at the current time]
@@ -206,14 +206,17 @@ trajectory_point KDLPlanner::compute_circular_trajectory(double s, double s_dot,
 {
   trajectory_point traj;
 
+  // position
   traj.pos(0) = trajInit_(0);
   traj.pos(1) = trajInit_(1) - trajRadius_*cos(2*M_PI*s);
   traj.pos(2) = trajInit_(2) - trajRadius_*sin(2*M_PI*s);
 
+  // velocity
   traj.vel(0) = 0;
   traj.vel(1) = 2*M_PI*s_dot*trajRadius_*sin(2*M_PI*s);
   traj.vel(2) = -2*M_PI*s_dot*trajRadius_*cos(2*M_PI*s);
 
+  // acceleration
   traj.acc(0) = 0;
   traj.acc(1) = 2*M_PI*trajRadius_*(s_ddot*sin(2*M_PI*s) + 2*M_PI*std::pow(s_dot,2)*cos(2*M_PI*s));
   traj.acc(2) = 2*M_PI*trajRadius_*(-s_ddot*cos(2*M_PI*s) + 2*M_PI*std::pow(s_dot,2)*sin(2*M_PI*s));
@@ -234,6 +237,7 @@ trajectory_point KDLPlanner::compute_linear_trajectory(double s, double s_dot, d
 
   Eigen::Vector3d delta_p = trajEnd_ - trajInit_;
 
+  // Point to poin interpolation
   traj.pos = trajInit_ + s*delta_p;
   traj.vel = s_dot*delta_p;
   traj.acc = s_ddot*delta_p;
@@ -242,7 +246,7 @@ trajectory_point KDLPlanner::compute_linear_trajectory(double s, double s_dot, d
 }
 
 /**
- * 
+ * @brief [circular trajectory function with cubic profile]
  */
 trajectory_point KDLPlanner::circular_traj_cubic(const double t)
 {
@@ -252,7 +256,7 @@ trajectory_point KDLPlanner::circular_traj_cubic(const double t)
 }
 
 /**
- * 
+ * @brief [circular trajectory function with trapezoidal proflie]
  */
 trajectory_point KDLPlanner::circular_traj_trapezoidal(const double t)
 {
@@ -262,7 +266,7 @@ trajectory_point KDLPlanner::circular_traj_trapezoidal(const double t)
 }
 
 /**
- * 
+ * @brief [linear trajectory function with cubic profile]
  */
 trajectory_point KDLPlanner::linear_traj_cubic(const double t)
 {
@@ -272,7 +276,7 @@ trajectory_point KDLPlanner::linear_traj_cubic(const double t)
 }
 
 /**
- * 
+ * @brief [linear trajectory function with trapezoidal profile]
  */
 trajectory_point KDLPlanner::linear_traj_trapezoidal(const double t)
 {
