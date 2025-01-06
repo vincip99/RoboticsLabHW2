@@ -301,7 +301,7 @@ class Iiwa_pub_sub : public rclcpp::Node
                         R_e = matrixOrthonormalization(R_e);
 
                         // Compute angular velocity errors
-                        Eigen::Matrix<double,3,1> omega_des(init_cart_vel_.rot.data);Eigen::Matrix<double,3,1> omega_des(init_cart_vel_.rot.data);
+                        Eigen::Matrix<double,3,1> omega_des(init_cart_vel_.rot.data);
                         Eigen::Matrix<double,3,1> omega_e(robot_->getEEVelocity().rot.data);
 
                         // Compute velocity errors (linear and rotational)

@@ -208,7 +208,7 @@ trajectory_point KDLPlanner::compute_circular_trajectory(double s, double s_dot,
 
   // position
   traj.pos(0) = trajInit_(0);
-  traj.pos(1) = trajInit_(1) - trajRadius_*cos(2*M_PI*s);
+  traj.pos(1) = trajInit_(1) - trajRadius_*cos(2*M_PI*s) + trajRadius_;
   traj.pos(2) = trajInit_(2) - trajRadius_*sin(2*M_PI*s);
 
   // velocity
